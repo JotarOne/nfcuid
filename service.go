@@ -3,14 +3,18 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/ebfe/scard"
+	MQTT "github.com/eclipse/paho.mqtt.golang"
 	"github.com/taglme/string2keyboard"
 )
 
@@ -24,12 +28,21 @@ func NewService(flags Flags) Service {
 }
 
 type Flags struct {
-	CapsLock bool
-	Reverse  bool
-	Decimal  bool
-	EndChar  CharFlag
-	InChar   CharFlag
-	Device   int
+	CapsLock     bool
+	Reverse      bool
+	Decimal      bool
+	EndChar      CharFlag
+	InChar       CharFlag
+	Device       int
+	GetAsDecimal bool
+	UseMqtt      bool
+	MqttServer   string
+	MqttUser     string
+	MqttPassword string
+	MqttPort     int
+	MqttTopic    string
+	MqttId       string
+	Debug        bool
 }
 
 type service struct {
@@ -37,6 +50,76 @@ type service struct {
 }
 
 func (s *service) Start() {
+
+	if s.flags.UseMqtt {
+		var bCleanSession bool = false
+		var qos int = 0
+
+		opts := MQTT.NewClientOptions()
+		var broker string = fmt.Sprintf(s.flags.MqttServer+":%d", s.flags.MqttPort)
+		if !strings.HasPrefix(broker, "tcp://") {
+			broker = "tcp://" + broker
+		}
+		fmt.Println("Using MQTT")
+		//tcp://iot.eclipse.org:1883
+		//fmt.Printf("\tserver: :    	%s\n", *&s.flags.MqttServer)
+		fmt.Printf("\tbroker: :    	%s\n", broker)
+		if s.flags.Debug {
+			fmt.Printf("\tuser:			%s\n", s.flags.MqttUser)
+			fmt.Printf("\tport:			%d\n", s.flags.MqttPort)
+		}
+		fmt.Printf("\ttopic:		%s\n", s.flags.MqttTopic)
+
+		opts.AddBroker(broker)
+		opts.SetClientID(s.flags.MqttId)
+		opts.SetUsername(s.flags.MqttUser)
+		opts.SetPassword(s.flags.MqttPassword)
+		opts.SetCleanSession(bCleanSession)
+
+		choke := make(chan [2]string)
+
+		opts.SetDefaultPublishHandler(func(client MQTT.Client, msg MQTT.Message) {
+			choke <- [2]string{msg.Topic(), string(msg.Payload())}
+		})
+
+		client := MQTT.NewClient(opts)
+		if token := client.Connect(); token.Wait() && token.Error() != nil {
+			panic(token.Error())
+		}
+
+		if token := client.Subscribe(s.flags.MqttTopic, byte(qos), nil); token.Wait() && token.Error() != nil {
+			fmt.Println(token.Error())
+			os.Exit(1)
+		}
+
+		c := make(chan os.Signal)
+		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+		go func() {
+			<-c
+			client.Disconnect(250)
+			fmt.Println("Disconnected from server")
+			os.Exit(1)
+		}()
+
+		//for receiveCount < *num {
+		for {
+			incoming := <-choke
+			//fmt.Printf("RECEIVED TOPIC: %s MESSAGE: %s\n", incoming[0], incoming[1])
+			if len(incoming[1]) > 0 {
+				var inBytes []byte = getBytesFromString(incoming[1])
+				if s.flags.Debug {
+					fmt.Printf("GOT: %x\n", inBytes)
+				}
+				var result string = s.formatOutput(inBytes)
+				var err = string2keyboard.KeyboardWrite(result)
+				if err != nil {
+					fmt.Printf("Could write as keyboard output. Error: %s\n", err.Error())
+				} else if s.flags.Debug {
+					fmt.Printf("WROTE: %s\n", result)
+				}
+			}
+		}
+	}
 	//Establish a context
 	ctx, err := scard.EstablishContext()
 	if err != nil {
@@ -168,6 +251,11 @@ func errorExit(err error) {
 }
 
 func (s *service) formatOutput(rx []byte) string {
+
+	if s.flags.GetAsDecimal {
+		return getDecFromHexArray(rx) + s.flags.EndChar.Output()
+	}
+
 	var output string
 	//Reverse UID in flag set
 	if s.flags.Reverse {
@@ -198,6 +286,28 @@ func (s *service) formatOutput(rx []byte) string {
 
 	output = output + s.flags.EndChar.Output()
 	return output
+}
+func getBytesFromString(inValue string) []byte {
+	splitString := strings.Split(inValue, ":")
+	var output []byte
+	for _, s := range splitString {
+		h, _ := hex.DecodeString(s)
+		output = append(output, h...)
+	}
+	return output
+}
+func getDecFromHexArray(byteArr []byte) string {
+	var sByte string
+	for _, b := range byteArr {
+		var s string = fmt.Sprintf("%x", b)
+		sByte = sByte + s
+	}
+	dNum, err := strconv.ParseInt(sByte, 16, 64)
+	if err != nil {
+		errorExit(err)
+	}
+	var ret string = fmt.Sprintf("%010d", dNum)
+	return ret
 }
 
 func waitUntilCardPresent(ctx *scard.Context, readers []string) (int, error) {

@@ -16,6 +16,16 @@ func main() {
 	flag.BoolVar(&appFlags.Reverse, "reverse", false, "UID reverse order")
 	flag.BoolVar(&appFlags.Decimal, "decimal", false, "UID in decimal format")
 	flag.IntVar(&appFlags.Device, "device", 0, "Device number to use")
+	flag.BoolVar(&appFlags.GetAsDecimal, "getasdecimal", false, "Get decimal value of input")
+
+	flag.BoolVar(&appFlags.UseMqtt, "mqtt-activated", false, "Use MQTT server instead of reader for input")
+	flag.StringVar(&appFlags.MqttServer, "mqtt-server", "", "MQTT Server address")
+	flag.StringVar(&appFlags.MqttUser, "mqtt-user", "", "MQTT User name")
+	flag.StringVar(&appFlags.MqttPassword, "mqtt-password", "", "MQTT Password")
+	flag.IntVar(&appFlags.MqttPort, "mqtt-port", 1883, "MQTT Port")
+	flag.StringVar(&appFlags.MqttTopic, "mqtt-topic", "nfcuid/reader", "MQTT Topic")
+	flag.StringVar(&appFlags.MqttId, "mqtt-id", "nfcuidclient", "MQTT id")
+	flag.BoolVar(&appFlags.Debug, "debug", false, "Output debug information")
 	flag.Parse()
 
 	//Check flags

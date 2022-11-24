@@ -111,11 +111,16 @@ func (s *service) Start() {
 					fmt.Printf("GOT: %x\n", inBytes)
 				}
 				var result string = s.formatOutput(inBytes)
-				var err = string2keyboard.KeyboardWrite(result)
-				if err != nil {
-					fmt.Printf("Could write as keyboard output. Error: %s\n", err.Error())
-				} else if s.flags.Debug {
-					fmt.Printf("WROTE: %s\n", result)
+				if s.flags.Debug {
+					fmt.Printf("OUTPUT: %s\n", result)
+				} else {
+					var err = string2keyboard.KeyboardWrite(result)
+					if err != nil {
+						fmt.Printf("Could write as keyboard output. Error: %s\n", err.Error())
+					} else if s.flags.Debug {
+						fmt.Printf("WROTE: %s\n", result)
+					}
+
 				}
 			}
 		}
@@ -288,6 +293,7 @@ func (s *service) formatOutput(rx []byte) string {
 	return output
 }
 func getBytesFromString(inValue string) []byte {
+	inValue = strings.Trim(inValue, " ")
 	splitString := strings.Split(inValue, ":")
 	var output []byte
 	for _, s := range splitString {
@@ -301,6 +307,9 @@ func getDecFromHexArray(byteArr []byte) string {
 	for _, b := range byteArr {
 		var s string = fmt.Sprintf("%x", b)
 		sByte = sByte + s
+	}
+	if len(sByte) == 0 {
+		return ""
 	}
 	dNum, err := strconv.ParseInt(sByte, 16, 64)
 	if err != nil {

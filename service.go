@@ -62,10 +62,6 @@ func (s *service) Start() {
 
 	me = s
 
-	if s.flags.UseTcpSocket && s.flags.TcpSocketPort > 0 {
-
-	}
-
 	if s.flags.UseMqttAsInput || s.flags.UseMqttAsOutput {
 		var bCleanSession bool = false
 		var qos int = 0

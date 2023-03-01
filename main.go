@@ -18,13 +18,22 @@ func main() {
 	flag.IntVar(&appFlags.Device, "device", 0, "Device number to use")
 	flag.BoolVar(&appFlags.GetAsDecimal, "getasdecimal", false, "Get decimal value of input")
 
-	flag.BoolVar(&appFlags.UseMqtt, "mqtt-activated", false, "Use MQTT server instead of reader for input")
-	flag.StringVar(&appFlags.MqttServer, "mqtt-server", "", "MQTT Server address")
-	flag.StringVar(&appFlags.MqttUser, "mqtt-user", "", "MQTT User name")
-	flag.StringVar(&appFlags.MqttPassword, "mqtt-password", "", "MQTT Password")
-	flag.IntVar(&appFlags.MqttPort, "mqtt-port", 1883, "MQTT Port")
-	flag.StringVar(&appFlags.MqttTopic, "mqtt-topic", "nfcuid/reader", "MQTT Topic")
-	flag.StringVar(&appFlags.MqttId, "mqtt-id", "nfcuidclient", "MQTT id")
+	flag.BoolVar(&appFlags.UseMqttAsInput, "mqttInput", false, "Use MQTT server")
+	flag.BoolVar(&appFlags.UseMqttAsOutput, "mqttOutput", false, "Use MQTT server")
+	flag.StringVar(&appFlags.MqttServer, "mqttServer", "", "MQTT Server address")
+	flag.StringVar(&appFlags.MqttUser, "mqttUser", "", "MQTT User name")
+	flag.StringVar(&appFlags.MqttPassword, "mqttPassword", "", "MQTT Password")
+	flag.IntVar(&appFlags.MqttPort, "mqttPort", 1883, "MQTT Port")
+
+	flag.StringVar(&appFlags.MqttTopicIn, "mqttTopicRead", "nfcuid/reader-in", "MQTT Topic")
+	flag.StringVar(&appFlags.MqttTopicOut, "mqttTopicWrite", "nfcuid/reader-out", "MQTT Topic")
+
+	flag.StringVar(&appFlags.MqttId, "mqttId", "nfcuidclient", "MQTT id")
+
+	flag.BoolVar(&appFlags.UseTcpSocket, "tcpSocketOutput", false, "Use tcp socket")
+	flag.IntVar(&appFlags.TcpSocketPort, "tcpSocketPort", 10340, "Tcp socket port")
+	flag.StringVar(&appFlags.TcpSocketAddress, "tcpSocketAddress", "127.0.0.1", "Tcp socket address")
+
 	flag.BoolVar(&appFlags.Debug, "debug", false, "Output debug information")
 	flag.Parse()
 

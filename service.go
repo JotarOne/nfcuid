@@ -28,30 +28,45 @@ func NewService(flags Flags) Service {
 }
 
 type Flags struct {
-	CapsLock     bool
-	Reverse      bool
-	Decimal      bool
-	EndChar      CharFlag
-	InChar       CharFlag
-	Device       int
-	GetAsDecimal bool
-	UseMqtt      bool
-	MqttServer   string
-	MqttUser     string
-	MqttPassword string
-	MqttPort     int
-	MqttTopic    string
-	MqttId       string
-	Debug        bool
+	CapsLock         bool
+	Reverse          bool
+	Decimal          bool
+	EndChar          CharFlag
+	InChar           CharFlag
+	Device           int
+	GetAsDecimal     bool
+	UseMqttAsInput   bool
+	UseMqttAsOutput  bool
+	MqttServer       string
+	MqttUser         string
+	MqttPassword     string
+	MqttPort         int
+	MqttTopicIn      string
+	MqttTopicOut     string
+	MqttId           string
+	Debug            bool
+	UseTcpSocket     bool
+	TcpSocketPort    int
+	TcpSocketAddress string
 }
 
 type service struct {
 	flags Flags
 }
 
+var mqttClient MQTT.Client
+var selectedReaders []string
+var me *service
+
 func (s *service) Start() {
 
-	if s.flags.UseMqtt {
+	me = s
+
+	if s.flags.UseTcpSocket && s.flags.TcpSocketPort > 0 {
+
+	}
+
+	if s.flags.UseMqttAsInput || s.flags.UseMqttAsOutput {
 		var bCleanSession bool = false
 		var qos int = 0
 
@@ -61,14 +76,17 @@ func (s *service) Start() {
 			broker = "tcp://" + broker
 		}
 		fmt.Println("Using MQTT")
-		//tcp://iot.eclipse.org:1883
-		//fmt.Printf("\tserver: :    	%s\n", *&s.flags.MqttServer)
 		fmt.Printf("\tbroker: :    	%s\n", broker)
 		if s.flags.Debug {
 			fmt.Printf("\tuser:			%s\n", s.flags.MqttUser)
 			fmt.Printf("\tport:			%d\n", s.flags.MqttPort)
 		}
-		fmt.Printf("\ttopic:		%s\n", s.flags.MqttTopic)
+		if s.flags.UseMqttAsInput {
+			fmt.Printf("\ttopic-in:		%s\n", s.flags.MqttTopicIn)
+		}
+		if s.flags.UseMqttAsOutput {
+			fmt.Printf("\ttopic-out:		%s\n", s.flags.MqttTopicOut)
+		}
 
 		opts.AddBroker(broker)
 		opts.SetClientID(s.flags.MqttId)
@@ -82,50 +100,50 @@ func (s *service) Start() {
 			choke <- [2]string{msg.Topic(), string(msg.Payload())}
 		})
 
-		client := MQTT.NewClient(opts)
-		if token := client.Connect(); token.Wait() && token.Error() != nil {
+		mqttClient = MQTT.NewClient(opts)
+		if token := mqttClient.Connect(); token.Wait() && token.Error() != nil {
 			panic(token.Error())
-		}
-
-		if token := client.Subscribe(s.flags.MqttTopic, byte(qos), nil); token.Wait() && token.Error() != nil {
-			fmt.Println(token.Error())
-			os.Exit(1)
 		}
 
 		c := make(chan os.Signal)
 		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 		go func() {
 			<-c
-			client.Disconnect(250)
-			fmt.Println("Disconnected from server")
+			if mqttClient != nil {
+				mqttClient.Disconnect(250)
+				fmt.Println("Disconnected from server")
+			}
 			os.Exit(1)
 		}()
 
-		//for receiveCount < *num {
-		for {
-			incoming := <-choke
-			//fmt.Printf("RECEIVED TOPIC: %s MESSAGE: %s\n", incoming[0], incoming[1])
-			if len(incoming[1]) > 0 {
-				var inBytes []byte = getBytesFromString(incoming[1])
-				if s.flags.Debug {
-					fmt.Printf("GOT: %x\n", inBytes)
-				}
-				var result string = s.formatOutput(inBytes)
-				var err = string2keyboard.KeyboardWrite(result)
-				if err != nil {
-					fmt.Printf("Could write as keyboard output. Error: %s\n", err.Error())
-				} else if s.flags.Debug {
-					fmt.Printf("WROTE: %s\n", result)
+		if s.flags.UseMqttAsInput {
+
+			if token := mqttClient.Subscribe(s.flags.MqttTopicIn, byte(qos), nil); token.Wait() && token.Error() != nil {
+				fmt.Println(token.Error())
+				os.Exit(1)
+			}
+
+			for {
+				incoming := <-choke
+				//fmt.Printf("RECEIVED TOPIC: %s MESSAGE: %s\n", incoming[0], incoming[1])
+				if len(incoming[1]) > 0 {
+					if s.flags.Debug {
+						fmt.Printf("GOT: %s\n", incoming[1])
+					}
+					var inBytes []byte = getBytesFromString(incoming[1])
+					var result string = s.formatOutput(inBytes)
+					Print(result)
 				}
 			}
 		}
 	}
+
 	//Establish a context
 	ctx, err := scard.EstablishContext()
 	if err != nil {
 		errorExit(err)
 	}
-	defer ctx.Release()
+	//defer ctx.Release()
 
 	//List available readers
 	readers, err := ctx.ListReaders()
@@ -178,9 +196,22 @@ func (s *service) Start() {
 		return
 	}
 
+	ctx.Release()
+
 	fmt.Println("Selected device:")
 	fmt.Printf("[%d] %s\n", s.flags.Device, readers[s.flags.Device-1])
-	selectedReaders := []string{readers[s.flags.Device-1]}
+	selectedReaders = []string{readers[s.flags.Device-1]}
+	connectToCard()
+
+}
+
+func connectToCard() {
+	//Establish a context
+	ctx, err := scard.EstablishContext()
+	if err != nil {
+		errorExit(err)
+	}
+	defer ctx.Release()
 
 	for {
 		fmt.Println("Waiting for a Card")
@@ -193,7 +224,8 @@ func (s *service) Start() {
 		fmt.Println("Connecting to card...")
 		card, err := ctx.Connect(selectedReaders[index], scard.ShareShared, scard.ProtocolAny)
 		if err != nil {
-			errorExit(err)
+			fmt.Println(err)
+			continue
 		}
 		defer card.Disconnect(scard.ResetCard)
 
@@ -210,10 +242,10 @@ func (s *service) Start() {
 			card.Disconnect(scard.ResetCard)
 			continue
 		}
-
 		//Check response code - two last bytes of response
 		rspCodeBytes := rsp[len(rsp)-2 : len(rsp)]
 		successResponseCode := []byte{0x90, 0x00}
+
 		if !bytes.Equal(rspCodeBytes, successResponseCode) {
 			fmt.Printf("Operation failed to complete. Error code % x\n", rspCodeBytes)
 			card.Disconnect(scard.ResetCard)
@@ -222,23 +254,16 @@ func (s *service) Start() {
 
 		uidBytes := rsp[0 : len(rsp)-2]
 		fmt.Printf("UID is: % x\n", uidBytes)
-		fmt.Printf("Writting as keyboard input...")
-		err = string2keyboard.KeyboardWrite(s.formatOutput(uidBytes))
-		if err != nil {
-			fmt.Printf("Could write as keyboard output. Error: %s\n", err.Error())
-		} else {
-			fmt.Printf("Success!\n")
-		}
+		Print(me.formatOutput(uidBytes))
 
 		card.Disconnect(scard.ResetCard)
 
 		//Wait while card will be released
 		fmt.Print("Waiting for card release...")
-		err = waitUntilCardRelease(ctx, selectedReaders, index)
+		waitUntilCardRelease(ctx, selectedReaders, index)
 		fmt.Println("Card released")
 
 	}
-
 }
 
 func (s *service) Flags() Flags {
@@ -287,6 +312,29 @@ func (s *service) formatOutput(rx []byte) string {
 	output = output + s.flags.EndChar.Output()
 	return output
 }
+
+func Print(output string) {
+	if me.flags.UseMqttAsOutput && mqttClient != nil {
+		if token := mqttClient.Publish(me.flags.MqttTopicOut, 0, false, output); token.Wait() && token.Error() != nil {
+			fmt.Println(token.Error())
+		}
+	} else if me.flags.UseTcpSocket && me.flags.TcpSocketPort > 0 {
+		sendSocketMessage(me.flags.TcpSocketAddress, me.flags.TcpSocketPort, output)
+	} else {
+		fmt.Printf("Writting as keyboard input...")
+		var err = string2keyboard.KeyboardWrite(output)
+		if err != nil {
+			fmt.Printf("Could write as keyboard output. Error: %s\n", err.Error())
+		} else {
+			fmt.Printf("Success!\n")
+		}
+
+	}
+	if me.flags.Debug {
+		fmt.Printf("WROTE: %s\n", output)
+	}
+}
+
 func getBytesFromString(inValue string) []byte {
 	splitString := strings.Split(inValue, ":")
 	var output []byte

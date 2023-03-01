@@ -336,6 +336,7 @@ func Print(output string) {
 }
 
 func getBytesFromString(inValue string) []byte {
+	inValue = strings.Trim(inValue, " ")
 	splitString := strings.Split(inValue, ":")
 	var output []byte
 	for _, s := range splitString {
@@ -349,6 +350,9 @@ func getDecFromHexArray(byteArr []byte) string {
 	for _, b := range byteArr {
 		var s string = fmt.Sprintf("%x", b)
 		sByte = sByte + s
+	}
+	if len(sByte) == 0 {
+		return ""
 	}
 	dNum, err := strconv.ParseInt(sByte, 16, 64)
 	if err != nil {
